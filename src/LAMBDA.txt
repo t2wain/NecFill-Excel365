@@ -1,0 +1,136 @@
+/*
+Multi-conductor, low voltage, 392.22(A)
+*/
+fxRuleA=LAMBDA(trayType, trayDepth,
+   SA_ALL, SA_MC_SM, SD_ALL, SD_MC_LG,
+   NO_ALL, NO_SIG,
+   LET(
+	  IsLadder, trayType="Ladder",
+	  IsVentilated, trayType="Ventilated",
+	  IsControlAndSignalOnly, NO_ALL=NO_SIG,
+	  IsShallow, trayDepth<=6,
+	  IsLargeMultiCondOnly, (SD_ALL-SD_MC_LG)<0.000001,
+	  IsSmallMultiCondOnly, (SA_ALL-SA_MC_SM)<0.000001,
+	  IsSolid, trayType="Solid",
+	  IsVentilatedChannel, trayType="Ventilated Channel",
+	  IsOneLVMultiCondOnly, NO_ALL=1,
+	  IsSolidChannel, trayType="Solid Channel",
+	  IsLdVn, OR(IsLadder, IsVentilated),
+	  A2a, AND(IsLdVn, IsControlAndSignalOnly, IsShallow),
+	  A2b, AND(IsLdVn, IsControlAndSignalOnly, NOT(IsShallow)),
+	  A1a, AND(IsLdVn, IsLargeMultiCondOnly),
+	  A1b, AND(IsLdVn, IsSmallMultiCondOnly),
+	  A1c, AND(IsLdVn, NOT(OR(A2a, A2b, A1a, A1b))),
+	  A4a, AND(IsSolid, IsControlAndSignalOnly, IsShallow),
+	  A4b, AND(IsSolid, IsControlAndSignalOnly, NOT(IsShallow)),
+	  A3a, AND(IsSolid, IsLargeMultiCondOnly),
+	  A3b, AND(IsSolid, IsSmallMultiCondOnly),
+	  A3c, AND(IsSolid, NOT(OR(A4a, A4b, A3a, A3b))),
+	  A5a, AND(IsVentilatedChannel, IsOneLVMultiCondOnly),
+	  A5b, AND(IsVentilatedChannel, NOT(IsOneLVMultiCondOnly)),
+	  A6a, AND(IsSolidChannel, IsOneLVMultiCondOnly),
+	  A6b, AND(IsSolidChannel, NOT(IsOneLVMultiCondOnly)),
+	  Rule, IFS(A2a,"A2a",
+		A2b,"A2b",
+		A2a,"A1a",
+		A1a,"A1a",
+		A1b,"A1b",
+		A1c,"A1c",
+		A4a,"A4a",
+		A4b,"A4b",
+		A3a,"A3a",
+		A3b,"A3b",
+		A3c,"A3c",
+		A5a,"A5a",
+		A5b,"A5b",
+		A6a,"A6a",
+		A6b,"A6b"),
+	  Rule
+   )
+)
+
+
+
+/*
+Single conductor, low voltage, power 392.22(B)
+*/
+fxRuleB=LAMBDA(trayType,
+   SD_1C_ALL, SD_1C_LG,
+   NO_ALL, NO_1C_M2, NO_1C_M3,
+   LET(
+	  IsLadder, trayType="Ladder",
+	  IsVentilated, trayType="Ventilated",
+	  IsLargeSingleCondOnly, (SD_1C_ALL-SD_1C_LG)<0.00001,
+	  IsMedium3SingleCondOnly, NO_ALL=NO_1C_M3,
+	  IsMedium2SingleCondOnly, NO_ALL=NO_1C_M2,
+	  IsLdVn, OR(IsLadder, IsVentilated),
+	  B1a, AND(IsLdVn, IsLargeSingleCondOnly),
+	  B1b, AND(IsLdVn, IsMedium3SingleCondOnly),
+	  B1c, AND(IsLdVn, IsMedium2SingleCondOnly),
+	  B1d, AND(IsLdVn, NOT(OR(B1a, B1b, B1d))),
+	  B2, NOT(IsLdVn),
+	  Rule = IFS(B1b,"B1b",B1c,"B1c",B1a,"B1a",B1d,"B1d",B2,"B2"),
+	  Rule
+   )
+)
+
+/*
+Lookup values in NEC tables
+*/
+fxNecTable=LAMBDA(
+	ruleNo, trayWidth,
+	IFS(
+		OR(ruleNo="A1b",ruleNo="A1c"), XLOOKUP(trayWidth,TNecA1[in],TNecA1[C1in2]),
+		OR(ruleNo="A3b",ruleNo="A3c"), XLOOKUP(trayWidth,TNecA1[in],TNecA1[C3in2]),
+		ruleNo="A5a", XLOOKUP(trayWidth,TNecA5[in],TNecA5[C1in2]),
+		ruleNo="A5b", XLOOKUP(trayWidth,TNecA5[in],TNecA5[C2in]),
+		ruleNo="A6a", XLOOKUP(trayWidth,TNecA6[in],TNecA6[C1in2]),
+		ruleNo="A6b", XLOOKUP(trayWidth,TNecA6[in],TNecA6[C2in]),
+		OR(ruleNo="B1b",ruleNo="B1c"), XLOOKUP(trayWidth,TNecB1[in],TNecB1[C1in2]),
+		TRUE, 0
+	)
+)
+
+/*
+Calculate tray fill per NEC 392.22(A)
+*/
+fxFillA=LAMBDA(ruleA, width, depth,
+	SD_MC_LG, SA_MC_SM, SA_MC, NecTable,
+	LET(
+		TArea, width*depth,
+		Fill, SWITCH(ruleA,
+			"A1a", SD_MC_LG / width,
+			"A1b", SA_MC_SM / NecTable,
+			"A1c", (SA_MC_SM / NecTable) + (1.2 * SD_MC_LG / NecTable),
+			"A2a", SA_MC / (0.5 * TArea),
+			"A2b", SA_MC / (6 * width),
+			"A3a", SD_MC_LG / (0.9 * width),
+			"A3b", SA_MC_SM / NecTable,
+			"A3c", (SA_MC_SM / NecTable) + (SD_MC_LG / NecTable),
+			"A4a", SA_MC / (0.4 * TArea),
+			"A4b", SA_MC / (6 * width),
+			"A5a", SA_MC / NecTable,
+			"A5b", SA_MC / NecTable,
+			"A6a", SA_MC / NecTable,
+			"A6b", SA_MC / NecTable,
+		),
+		Fill
+	)
+)
+
+/*
+Calculate tray fill per NEC 392.22(B)
+*/
+fxFillB=LAMBDA(ruleB, trayWidth,
+	SD_1C_LG, SA_1C_SM, SD_1C_ALL, NecTable,
+	LET(
+		Fill, SWITCH(ruleB,
+			"B1a", SD_1C_LG / trayWidth,
+			"B1b", SA_1C_SM / NecTable,
+			"B1c", (SA_1C_SM / NecTable) + (1.1 * SD_1C_LG / NecTable),
+			"B1d", SD_1C_ALL / trayWidth,
+			"B2", SD_1C_ALL / trayWidth,
+		),
+		Fill
+	)
+)
